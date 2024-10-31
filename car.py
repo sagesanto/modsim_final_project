@@ -13,7 +13,7 @@ class Car:
     def y(self):
         return self.tile.y
     
-    def update(self):
+    def reset(self):
         # reset state at beginning of next cycle
         self.moves_left = min(self.desired_speed,self.tile.speed_limit)
     

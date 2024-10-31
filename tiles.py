@@ -50,6 +50,11 @@ class RoadMarker(mpath.Path):
     def __init__(self, p_directions, scale=1.0):
         vertices = []
         codes = []
+        if p_directions[-1]:  # this is the chance to stay where we are
+            dot_path = mpath.Path.unit_circle()
+            t = Affine2D().scale(p_directions[-1] * 10 * scale)
+            vertices.extend(t.transform(dot_path.vertices))
+            codes.extend(dot_path.codes)
 
         for i, p in enumerate(p_directions[:-1]):
             angle = 360 - i * 45
@@ -61,12 +66,6 @@ class RoadMarker(mpath.Path):
                 codes.append(mpath.Path.MOVETO)
                 vertices.extend(verts)
                 codes.extend(line_path.codes)
-
-        if p_directions[-1]:  # this is the chance to stay where we are
-            dot_path = mpath.Path.unit_circle()
-            t = Affine2D().scale(p_directions[-1] * 10 * scale)
-            vertices.extend(t.transform(dot_path.vertices))
-            codes.extend(dot_path.codes)
         
         self.marker = mpath.Path(vertices, codes)
 
@@ -77,13 +76,13 @@ class Road(Tile):
     def __init__(self,x:int,y:int,p_directions:np.ndarray):
         super().__init__()
         assert(len(p_directions)==9)
-        assert(np.sum(p_directions)==1)
+        assert np.allclose(1,np.sum(p_directions))
         self._x = x
         self._y = y
         self._directions =  np.array(p_directions,copy=True)
         self.p_directions = np.array(p_directions,copy=True)
         self.car = None
-        self.neighbors = []
+        self.neighbors = [None]*8
     
     @property
     def occupied(self) -> bool:
@@ -97,8 +96,13 @@ class Road(Tile):
     def marker(self, scale=1.0):
         return MarkerStyle(RoadMarker(self.p_directions, scale=scale))
 
-    def plot(self,ax,**kwargs):
-        ax.plot(self.x,self.y,marker=self.marker(1),markersize=50,**kwargs)
+    def plot(self,ax,connections=True,markersize=50,**kwargs):
+        ax.plot(self.x,self.y,marker=self.marker(1),markersize=markersize,**kwargs)
+        # ax.text(self.x,self.y,str(self.index),verticalalignment="bottom",horizontalalignment="right")
+        if connections:
+            for i,n in enumerate(self.neighbors):
+                if n is not None:
+                    ax.plot([self.x,n.x],[self.y,n.y],linewidth=10*self.p_directions[i])
     
     def __repr__(self):
         return f"Road({self.x},{self.y},occupied={self.occupied})"
@@ -110,6 +114,8 @@ class Exit(Tile):
         self._x = x
         self._y = y
         self.index = None
+        self.neighbors = [None]*8
+        self.p_directions = self._directions = np.array([0,0,0,0,0,0,0,0,1])
     
     def move_in(self,car):
         del(car)  # this feels like it will cause problems
@@ -117,4 +123,3 @@ class Exit(Tile):
     @property
     def occupied(self):
         return False
-        
