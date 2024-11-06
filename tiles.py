@@ -22,11 +22,18 @@ class Tile(ABC):
     def move_in(self,car):
         pass
 
+    @abstractmethod
+    def move_out(self,car):
+        pass
+
     def set_index(self,index):
         self.index = index 
     
     @abstractmethod
     def marker(self,scale):
+        pass
+
+    def update(self):
         pass
 
     @abstractproperty
@@ -73,14 +80,15 @@ class RoadMarker(mpath.Path):
 
 
 class Road(Tile):
-    def __init__(self,x:int,y:int,p_directions:np.ndarray):
+    def __init__(self,x:int,y:int,p_directions:np.ndarray,speed_limit=1):
         super().__init__()
         assert(len(p_directions)==9)
         assert np.allclose(1,np.sum(p_directions))
         self._x = x
         self._y = y
-        self._directions =  np.array(p_directions,copy=True)
-        self.p_directions = np.array(p_directions,copy=True)
+        self._directions =  np.array(p_directions,copy=True,dtype=float)
+        self.p_directions = np.array(p_directions,copy=True,dtype=float)
+        self.speed_limit=speed_limit
         self.car = None
         self.neighbors = [None]*8
     
@@ -92,34 +100,89 @@ class Road(Tile):
         if self.car is not None:
             raise ValueError("Cannot move car into this cell! It already has one!")
         self.car = car
-    
+        for i, neighbor in enumerate(self.neighbors):
+            if neighbor:
+                neighbor_idx = (i+4)%8
+                print(neighbor.p_directions)
+                prev_val = neighbor.p_directions[neighbor_idx]
+                print(f"changing neighbor {i} idx {neighbor_idx} (prev {neighbor.p_directions[neighbor_idx]}) of {neighbor} to 0")
+                neighbor.p_directions[neighbor_idx] = 0
+                non_zero_connections = np.where(neighbor.p_directions > 0)[0]
+                if not len(non_zero_connections):
+                    non_zero_connections = [8]
+                neighbor.p_directions[non_zero_connections] += prev_val / len(non_zero_connections)
+                print(prev_val,neighbor.p_directions,non_zero_connections)
+                assert np.allclose(np.sum(neighbor.p_directions),1)
+        
+    def move_out(self):
+    # what to do when a car moves out of our cell
+        for i, neighbor in enumerate(self.neighbors):
+            if neighbor:
+                neighbor_idx_for_me = (i+4)%8  # this is which neighbor we are from the neighboring tile's perspective 
+                new_val = neighbor._directions[neighbor_idx_for_me]
+                print(f"changing neighbor {i} idx {neighbor_idx_for_me} (prev {neighbor.p_directions[neighbor_idx_for_me]}) of {neighbor} to {neighbor._directions[neighbor_idx_for_me]}")
+                non_zero_connections = np.where(neighbor.p_directions > 0)[0]
+                if not len(non_zero_connections):
+                    non_zero_connections = [8]
+                assert(neighbor.p_directions[neighbor_idx_for_me] == 0)
+                neighbor.p_directions[non_zero_connections] -= new_val / len(non_zero_connections)
+                neighbor.p_directions[neighbor_idx_for_me] = new_val
+                print(new_val,neighbor.p_directions,non_zero_connections)
+                assert np.allclose(np.sum(neighbor.p_directions),1)
+        self.car=None
+
     def marker(self, scale=1.0):
         return MarkerStyle(RoadMarker(self.p_directions, scale=scale))
 
     def plot(self,ax,connections=True,markersize=50,**kwargs):
-        ax.plot(self.x,self.y,marker=self.marker(1),markersize=markersize,**kwargs)
+        p = ax.plot(self.x,self.y,marker=self.marker(1),markersize=markersize,**kwargs)
         # ax.text(self.x,self.y,str(self.index),verticalalignment="bottom",horizontalalignment="right")
+        c = p[0].get_color()
         if connections:
             for i,n in enumerate(self.neighbors):
-                if n is not None:
-                    ax.plot([self.x,n.x],[self.y,n.y],linewidth=10*self.p_directions[i])
+                if n is not None and self.p_directions[i] > 0:
+                    ax.plot([self.x,n.x],[self.y,n.y], linestyle=("dashed" if i > 3 else "dotted"),alpha=0.5, color=c)
+                    # ax.plot([self.x,n.x],[self.y,n.y],linewidth=10*self.p_directions[i], linestyle=("dashed" if i > 3 else "dotted"))
+        return p
     
     def __repr__(self):
         return f"Road({self.x},{self.y},occupied={self.occupied})"
 
 
-class Exit(Tile):
-    def __init__(self,x:int,y:int) -> None:
-        super().__init__()
-        self._x = x
-        self._y = y
-        self.index = None
-        self.neighbors = [None]*8
-        self.p_directions = self._directions = np.array([0,0,0,0,0,0,0,0,1])
-    
+class Exit(Road):
+    def __init__(self,x,y):
+        super().__init__(x,y,[0,0,0,0,0,0,0,0,1.0])
     def move_in(self,car):
-        del(car)  # this feels like it will cause problems
+        car.to_remove = True
     
+    def marker(self, scale=1.0):
+        # sq = mpath.Path.unit_rectangle()
+        # x = mpath.Path.unit_regular_star(4)
+        # sq = sq.transformed(Affine2D().scale(0.5).translate(-0.25,-0.25))
+        # x = x.transformed(Affine2D().scale(0.5).translate(-0.25,-0.25))
+        # return MarkerStyle(mpath.Path(vertices=np.concatenate([sq.vertices,x.vertices]), codes=np.concatenate([sq.codes,x.codes]), closed=True))
+        return MarkerStyle("*")
+
+    @property
+    def occupied(self):
+        return False
+    
+class Onramp(Road):
+    
+    def __init__(self,x,y):
+        super().__init__(x,y,[0,0,0,0,0,0,0,0,1.0])
+
+    def move_in(self,car):
+        car.to_remove = True
+    
+    def marker(self, scale=1.0):
+        # sq = mpath.Path.unit_rectangle()
+        # x = mpath.Path.unit_regular_star(4)
+        # sq = sq.transformed(Affine2D().scale(0.5).translate(-0.25,-0.25))
+        # x = x.transformed(Affine2D().scale(0.5).translate(-0.25,-0.25))
+        # return MarkerStyle(mpath.Path(vertices=np.concatenate([sq.vertices,x.vertices]), codes=np.concatenate([sq.codes,x.codes]), closed=True))
+        return MarkerStyle("P")
+
     @property
     def occupied(self):
         return False
