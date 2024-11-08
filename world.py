@@ -39,7 +39,6 @@ class World:
             for _ in steps:
                 self.do_simulation_step()
 
-
     
     def connect_tiles(self):
         self.markov = np.zeros((len(self._tiles),len(self._tiles)))

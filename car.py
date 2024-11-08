@@ -17,7 +17,7 @@ class Car:
     def reset(self):
         # reset state at beginning of next cycle
         self.moves_left = min(self.desired_speed,self.tile.speed_limit)
-    
+
     def setup(self):
         self.tile.move_in(self)
     
