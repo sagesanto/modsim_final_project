@@ -1,24 +1,32 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-
+from tiles import Road, Exit, Onramp
 rng = np.random.default_rng()
 
 class World:
     def __init__(self,tiles,cars) -> None:
-        self.cars = cars
         self._tiles = tiles  # this is just a 1d array of tiles
         self.tiles = np.empty((self.max_x+2,self.max_y+2),dtype=object)  # this is a 2d grid of None or Tile
         self.tiles.fill(None)
         for i,t in enumerate(tiles):
             t.set_index(i)
-            self.tiles[t.x,t.y] = t   
+            self.tiles[t.x,t.y] = t  
+        self.running_car_id = 0 
+        self.timestep = 0
         self.markov = None
         self.connect_tiles()
-        for car in self.cars:
-            car.setup()
+        self.cars = []
+        for car in cars:
+            self.add_car(car)  
+        
+        self.car_info_packets = []
     
     def add_car(self,car):
+        car.set_id(self.running_car_id)
+        car.set_timestep_of_creation(self.timestep)
+        self.running_car_id += 1
+        car.set_color(rng.choice(["tab:red","tab:blue","tab:orange","tab:gray","tab:pink","tab:purple"]))
         self.cars.append(car)
         car.setup()
 
@@ -53,7 +61,7 @@ class World:
                     continue
                 other = self.tiles[x,y]
                 t.neighbors[i] = other
-                if other is None:
+                if other is None or isinstance(other,Onramp):
                     to_reallocate += t.p_directions[i]
                     t.p_directions[i] = 0
             non = np.where(t.p_directions != 0)[0]
@@ -83,7 +91,7 @@ class World:
         xticks = np.arange(self.max_x+2) - 1 + shift
         yticks = np.arange(self.max_y+2) - 1 + shift
         for car in self.cars:
-            ax.scatter(car.x+0.2,car.y+0.2,marker="s",s=100)
+            ax.scatter(car.x+0.2,car.y+0.2,marker="s",s=75,color=car.color)
 
         ax.set_xticks(xticks)
         ax.set_yticks(yticks)
@@ -97,11 +105,17 @@ class World:
         # reset cars to their initial states
         # pick a random order (?) to drive cars in
         # drive each car until it's out of moves
+        for tile in self._tiles:
+            res = tile.update()
+            if res is not None:  # then its a car given to us by a ramp tile
+                self.add_car(res)
+
         self.cars = [c for c in self.cars if not c.to_remove]
         if not len(self.cars):
             return
         for car in self.cars:
             car.reset()
+        car_info_packets = []
         driving_order = np.arange(len(self.cars))
         rng.shuffle(driving_order)
         print("driving order:",driving_order)
@@ -111,10 +125,13 @@ class World:
                 car = self.cars[i]
                 if not car.moves_left:
                     done_driving.append(i)
+                    car_info_packets.append([car.ID,car.tile.x,car.tile.y])
                     continue
                 next_tile = rng.choice(car.tile.neighbors+[car.tile],p=car.tile.p_directions)
                 print(f"car {car}: I'm going to {next_tile}!")
                 car.move_to(next_tile)
+        self.car_info_packets.append(np.array(car_info_packets))
+        self.timestep += 1
 
     @property
     def max_x(self):

@@ -1,10 +1,12 @@
-
 class Car:
     def __init__(self, tile, desired_speed):
         self.tile = tile
         self.desired_speed = desired_speed
         self.moves_left = min(self.desired_speed,self.tile.speed_limit)
         self.to_remove = False
+        self.color = "tab:black"
+        self.ID = None
+        self.timestep_of_creation = None
 
     @property
     def x(self):
@@ -14,9 +16,18 @@ class Car:
     def y(self):
         return self.tile.y
     
+    def set_timestep_of_creation(self,t):
+        self.timestep_of_creation = t
+
+    def set_id(self,ID):
+        self.ID = ID
+    
     def reset(self):
         # reset state at beginning of next cycle
         self.moves_left = min(self.desired_speed,self.tile.speed_limit)
+
+    def set_color(self,color):
+        self.color = color
 
     def setup(self):
         self.tile.move_in(self)

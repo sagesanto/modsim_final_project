@@ -5,6 +5,9 @@ from matplotlib.transforms import Affine2D
 import matplotlib.path as mpath
 import matplotlib.patches as patches
 
+from car import Car 
+
+rng = np.random.default_rng()
 
 class Tile(ABC):
     def __init__(self):
@@ -33,7 +36,7 @@ class Tile(ABC):
     def marker(self,scale):
         pass
 
-    def update(self):
+    def update(self) -> Car|None:
         pass
 
     @abstractproperty
@@ -169,11 +172,20 @@ class Exit(Road):
     
 class Onramp(Road):
     
-    def __init__(self,x,y):
-        super().__init__(x,y,[0,0,0,0,0,0,0,0,1.0])
-
-    def move_in(self,car):
-        car.to_remove = True
+    def __init__(self,x,y,p_directions,speed_limit=1,car_period=1,avg_speed=1):
+        super().__init__(x,y,p_directions,speed_limit)
+        self.timer = 0
+        self.car_period = car_period
+        self.avg_speed = avg_speed
+        
+    def update(self):
+        if not self.timer % self.car_period:
+            if not self.occupied:
+                self.timer += 1
+                return Car(self,np.ceil(rng.random()*self.avg_speed))
+            return None
+        self.timer += 1
+        return None
     
     def marker(self, scale=1.0):
         # sq = mpath.Path.unit_rectangle()
@@ -182,7 +194,3 @@ class Onramp(Road):
         # x = x.transformed(Affine2D().scale(0.5).translate(-0.25,-0.25))
         # return MarkerStyle(mpath.Path(vertices=np.concatenate([sq.vertices,x.vertices]), codes=np.concatenate([sq.codes,x.codes]), closed=True))
         return MarkerStyle("P")
-
-    @property
-    def occupied(self):
-        return False
