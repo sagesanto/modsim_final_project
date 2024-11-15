@@ -118,7 +118,7 @@ class World:
         car_info_packets = []
         driving_order = np.arange(len(self.cars))
         rng.shuffle(driving_order)
-        print("driving order:",driving_order)
+        # print("driving order:",driving_order)
         done_driving = []
         while len(done_driving) < len(self.cars):
             for i in [c for c in driving_order if c not in done_driving]:

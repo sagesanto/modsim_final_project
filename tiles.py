@@ -89,7 +89,8 @@ class Road(Tile):
         assert np.allclose(1,np.sum(p_directions))
         self._x = x
         self._y = y
-        self._directions =  np.array(p_directions,copy=True,dtype=float)
+        self.carless_directions =  np.array(p_directions,copy=True,dtype=float)
+        self.orig_directions =  np.array(p_directions,copy=True,dtype=float)
         self.p_directions = np.array(p_directions,copy=True,dtype=float)
         self.speed_limit=speed_limit
         self.car = None
@@ -106,16 +107,26 @@ class Road(Tile):
         for i, neighbor in enumerate(self.neighbors):
             if neighbor:
                 neighbor_idx = (i+4)%8
-                print(neighbor.p_directions)
+                # print(neighbor.p_directions)
                 prev_val = neighbor.p_directions[neighbor_idx]
-                print(f"changing neighbor {i} idx {neighbor_idx} (prev {neighbor.p_directions[neighbor_idx]}) of {neighbor} to 0")
+                # print(f"changing neighbor {i} idx {neighbor_idx} (prev {neighbor.p_directions[neighbor_idx]}) of {neighbor} to 0")
                 neighbor.p_directions[neighbor_idx] = 0
                 non_zero_connections = np.where(neighbor.p_directions > 0)[0]
                 if not len(non_zero_connections):
                     non_zero_connections = [8]
                 neighbor.p_directions[non_zero_connections] += prev_val / len(non_zero_connections)
-                print(prev_val,neighbor.p_directions,non_zero_connections)
+                # print(prev_val,neighbor.p_directions,non_zero_connections)
                 assert np.allclose(np.sum(neighbor.p_directions),1)
+
+    def block(self,direction):
+        prev_val = self.p_directions[direction]
+        # print(f"changing neighbor {i} idx {neighbor_idx} (prev {neighbor.p_directions[neighbor_idx]}) of {neighbor} to 0")
+        self.p_directions[direction] = 0
+        non_zero_connections = np.where(self.p_directions > 0)[0]
+        if not len(non_zero_connections):
+            non_zero_connections = [8]
+        self.p_directions[non_zero_connections] += prev_val / len(non_zero_connections)
+        assert np.allclose(np.sum(self.p_directions),1)
         
     def move_out(self):
     # what to do when a car moves out of our cell
@@ -123,14 +134,14 @@ class Road(Tile):
             if neighbor:
                 neighbor_idx_for_me = (i+4)%8  # this is which neighbor we are from the neighboring tile's perspective 
                 new_val = neighbor._directions[neighbor_idx_for_me]
-                print(f"changing neighbor {i} idx {neighbor_idx_for_me} (prev {neighbor.p_directions[neighbor_idx_for_me]}) of {neighbor} to {neighbor._directions[neighbor_idx_for_me]}")
+                # print(f"changing neighbor {i} idx {neighbor_idx_for_me} (prev {neighbor.p_directions[neighbor_idx_for_me]}) of {neighbor} to {neighbor._directions[neighbor_idx_for_me]}")
                 non_zero_connections = np.where(neighbor.p_directions > 0)[0]
                 if not len(non_zero_connections):
                     non_zero_connections = [8]
                 assert(neighbor.p_directions[neighbor_idx_for_me] == 0)
                 neighbor.p_directions[non_zero_connections] -= new_val / len(non_zero_connections)
                 neighbor.p_directions[neighbor_idx_for_me] = new_val
-                print(new_val,neighbor.p_directions,non_zero_connections)
+                # print(new_val,neighbor.p_directions,non_zero_connections)
                 assert np.allclose(np.sum(neighbor.p_directions),1)
         self.car=None
 
@@ -159,11 +170,6 @@ class Exit(Road):
         car.to_remove = True
     
     def marker(self, scale=1.0):
-        # sq = mpath.Path.unit_rectangle()
-        # x = mpath.Path.unit_regular_star(4)
-        # sq = sq.transformed(Affine2D().scale(0.5).translate(-0.25,-0.25))
-        # x = x.transformed(Affine2D().scale(0.5).translate(-0.25,-0.25))
-        # return MarkerStyle(mpath.Path(vertices=np.concatenate([sq.vertices,x.vertices]), codes=np.concatenate([sq.codes,x.codes]), closed=True))
         return MarkerStyle("*")
 
     @property
@@ -171,7 +177,6 @@ class Exit(Road):
         return False
     
 class Onramp(Road):
-    
     def __init__(self,x,y,p_directions,speed_limit=1,car_period=1,avg_speed=1):
         super().__init__(x,y,p_directions,speed_limit)
         self.timer = 0
@@ -188,9 +193,4 @@ class Onramp(Road):
         return None
     
     def marker(self, scale=1.0):
-        # sq = mpath.Path.unit_rectangle()
-        # x = mpath.Path.unit_regular_star(4)
-        # sq = sq.transformed(Affine2D().scale(0.5).translate(-0.25,-0.25))
-        # x = x.transformed(Affine2D().scale(0.5).translate(-0.25,-0.25))
-        # return MarkerStyle(mpath.Path(vertices=np.concatenate([sq.vertices,x.vertices]), codes=np.concatenate([sq.codes,x.codes]), closed=True))
-        return MarkerStyle("P")
+       return MarkerStyle("P")
