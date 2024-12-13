@@ -1,8 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from tiles import Road, Exit, Onramp
+from tiles import Road, Exit, Onramp, Tile
+from traffic_signals import Signaller, Stoplight
 rng = np.random.default_rng()
+from matplotlib import colormaps
+from matplotlib.axis import Axis
 
 class World:
     def __init__(self,tiles,cars) -> None:
@@ -11,6 +14,8 @@ class World:
         self.tiles.fill(None)
         for i,t in enumerate(tiles):
             t.set_index(i)
+            if self.tiles[t.x,t.y]:
+                raise ValueError(f"Error! Overlapping tiles at ({t.x,t.y})!")
             self.tiles[t.x,t.y] = t  
         self.running_car_id = 0 
         self.timestep = 0
@@ -21,12 +26,18 @@ class World:
             self.add_car(car)  
         
         self.car_info_packets = []
+        self.signaller = Signaller()
+    
+    def add_stoplight(self,stoplight):
+        self.signaller.add_stoplight(stoplight)
     
     def add_car(self,car):
         car.set_id(self.running_car_id)
-        car.set_timestep_of_creation(self.timestep)
         self.running_car_id += 1
-        car.set_color(rng.choice(["tab:red","tab:blue","tab:orange","tab:gray","tab:pink","tab:purple"]))
+        car.set_timestep_of_creation(self.timestep)
+
+        car.set_color(rng.choice(colormaps["Set3"].colors))
+        # car.set_color(rng.choice(["tab:red","tab:blue","tab:orange","tab:gray","tab:pink","tab:purple"]))
         self.cars.append(car)
         car.setup()
 
@@ -38,13 +49,14 @@ class World:
             fig, ax = plt.subplots()
             def update(frame):
                 ax.cla()
-                self.draw(ax=ax,**kwargs)
+                artists = self.draw(ax=ax,**kwargs)
                 self.do_simulation_step()
+                return artists
             
-            ani = animation.FuncAnimation(fig,update,frames=steps,interval=250)
+            ani = animation.FuncAnimation(fig,update,frames=steps,interval=100,blit=True)
             ani.save(filename=outpath, writer="pillow",dpi=150)
         else:
-            for _ in steps:
+            for _ in range(steps):
                 self.do_simulation_step()
 
     
@@ -80,58 +92,121 @@ class World:
             # however i haven't had coffee yet, nor have i thought abt doing this elegantly, nor do i care
         # print([(a,np.sum(self.markov[a,:])) for a in np.arange(self.markov.shape[0])])
         for t in self._tiles:
-            t._directions = np.array(t.p_directions,copy=True)
+            t.carless_directions = np.array(t.p_directions,copy=True)
+            t.orig_directions = np.array(t.p_directions,copy=True)
+        assert np.all(self.markov >= 0)
         assert np.allclose(1,np.sum(self.markov[:,:])/self.markov.shape[0])
 
-    def draw(self,shift=0.5,ax=None,connections=True,**kwargs):
+    def draw(self,shift=0.5,ax=None,conns=True,live_connections=False,show=True,xlims=None,ylims=None,**kwargs):
+        artists = []
         if ax is None:
             fig, ax = plt.subplots()
         for r in self._tiles:
-            r.plot(ax,connections=connections,**kwargs)
+            artists.extend(r.plot(ax,conns=conns,live_connections=live_connections,zorder=0,**kwargs))
         xticks = np.arange(self.max_x+2) - 1 + shift
         yticks = np.arange(self.max_y+2) - 1 + shift
-        for car in self.cars:
-            ax.scatter(car.x+0.2,car.y+0.2,marker="s",s=75,color=car.color)
 
+        # NO KWARGS
+        artists.extend(self.signaller.draw(ax))
+        # artists.extend(self.signaller.draw(ax,**kwargs))
+
+        # xlim = xlims or ax.get_xlim()
+        # ylim = ylims or ax.get_ylim()
+
+        for car in self.cars:
+            artists.append(ax.scatter(car.x,car.y,marker="s",s=20,color=car.color,zorder=10))
+            if car.route is not None:
+                artists.extend(car.route.draw(ax,idx=car.route_idx, alpha=0.2, color=car.color))
+
+        ax.set_title(f"t={self.timestep}")
         ax.set_xticks(xticks)
         ax.set_yticks(yticks)
         ax.set_xticklabels([])
         ax.set_yticklabels([])
+        if xlims is not None:
+            ax.set_xlim(*xlims)
+        if xlims is not None:
+            ax.set_ylim(*ylims)
         ax.set_aspect('equal')
         ax.grid(which="major")
-        plt.show()
+        if show:
+            plt.show()
+        return artists
 
     def do_simulation_step(self):
         # reset cars to their initial states
         # pick a random order (?) to drive cars in
         # drive each car until it's out of moves
-        for tile in self._tiles:
-            res = tile.update()
-            if res is not None:  # then its a car given to us by a ramp tile
-                self.add_car(res)
-
+        self.signaller.update(self.timestep)
+        if self.timestep % 100 == 0:
+            print(f"====  t={self.timestep} ====")
         self.cars = [c for c in self.cars if not c.to_remove]
-        if not len(self.cars):
-            return
+        # if not len(self.cars):
+        #     return
         for car in self.cars:
             car.reset()
         car_info_packets = []
-        driving_order = np.arange(len(self.cars))
-        rng.shuffle(driving_order)
+
+        # driving_order = np.arange(len(self.cars))
+        # rng.shuffle(driving_order)
         # print("driving order:",driving_order)
         done_driving = []
-        while len(done_driving) < len(self.cars):
-            for i in [c for c in driving_order if c not in done_driving]:
-                car = self.cars[i]
+        while len(done_driving) < len([c for c in self.cars if not c.to_remove]):
+            tiles_w_cars = [t for t in self._tiles if t.occupied]
+            tiles_w_cars.sort(key=lambda t: t.constraints)
+            for car in [t.car for t in tiles_w_cars if t.car.ID not in done_driving]:
                 if not car.moves_left:
-                    done_driving.append(i)
+                    done_driving.append(car.ID)
                     car_info_packets.append([car.ID,car.tile.x,car.tile.y])
                     continue
-                next_tile = rng.choice(car.tile.neighbors+[car.tile],p=car.tile.p_directions)
-                print(f"car {car}: I'm going to {next_tile}!")
+                tiles = car.tile.neighbors+[car.tile]
+                try:
+                    next_tile = rng.choice(car.tile.neighbors+[car.tile],p=car.tile.p_directions)
+                except ValueError as e:
+                    print(f"ERROR in sim step: {e}")
+                    print(f"Tile: {car.tile}")
+                    print(f"Probs: {car.tile.p_directions}")
+                    raise e
+                if car.route is not None:
+                    route_tile = car.route.tiles[car.route_idx]
+                    if route_tile not in tiles:
+                        print(f"WARNING Route {car.route} wants car {car.ID} to go to tile {route_tile} from {car.tile} but it's not a neighbor!")
+                        next_tile = car.tile
+                    elif car.tile.p_directions[car.tile.neighbors.index(route_tile)] == 0:  # miserable
+                        # print(car.tile.p_directions, car.tile.neighbors.index(route_tile))              
+                        next_tile = car.tile
+                    else:
+                        if len(car.route.tiles) - 1 ==  car.route_idx:
+                            car.set_route(None)
+                            # print(f"Car {car.ID} is on its last step of its route :D")
+                        else:
+                            car.route_idx += 1
+                        next_tile = route_tile
+                        # print(f"Car {car.ID} is following route {car.route} from {car.tile} to {route_tile} :)")
+                # print(f"car {car.ID}: I'm going to {next_tile}!")
                 car.move_to(next_tile)
         self.car_info_packets.append(np.array(car_info_packets))
         self.timestep += 1
+
+        for tile in self._tiles:
+            res = tile.update()
+            if res is not None:  # then its a car given to us by a ramp tile
+                # print(res)
+                self.add_car(res)
+
+    def reset(self):
+        self.signaller.reset()
+        for car in self.cars:
+            del(car)
+        self.cars = []
+        for tile in self._tiles:
+            tile.reset()
+        self.timestep = 0
+        self.car_info_packets = []
+        self.running_car_id = 0
+
+    def __getitem__(self, index):
+        return self.tiles[index]
 
     @property
     def max_x(self):
@@ -147,4 +222,40 @@ class World:
     
     @property
     def min_y(self):
-        return max([t.y for t in self._tiles])
+        return min([t.y for t in self._tiles])
+
+class Route:
+    def __init__(self,tiles:list[Tile]):
+        self.tiles = [t for t in tiles if t is not None]
+        if len(self.tiles) < 1:
+            raise ValueError("Route must have at least one tile!")
+        self.tile_ids = [t.index for t in self.tiles]
+
+    def __len__(self):
+        return len(self.tiles)
+    
+    def __repr__(self):
+        return repr(self.tiles)
+    
+    def draw(self,ax:Axis,idx=0,**kwargs):
+        x,y = zip(*[(t.x,t.y) for t in self.tiles[idx:]])
+        artists = []
+        # for tile in self.tiles:
+            # tile.plot(ax,**kwargs)
+        artists.extend(ax.plot(x,y,**kwargs,zorder=5))
+        second = self.tiles[-2]
+        last = self.tiles[-1]
+        kw = {"color":artists[0].get_color(), "alpha":kwargs.get("alpha",1) * 0.5}
+        artists.append(ax.arrow(second.x,second.y,0.5*(last.x-second.x),0.5*(last.y-second.y),**kw,zorder=5,width=0.15))
+        return artists
+        # ax.scatter(x,y,marker="o",**kwargs,zorder=5)
+
+class Choice:
+    def __init__(self,routes:list[Route],probabilities):
+        assert np.allclose(np.sum(probabilities),1)
+        assert len(probabilities) == len(routes)
+        self.probabilities = probabilities
+        self.routes = routes
+    
+    def choose(self):
+        return rng.choice(self.routes,p=self.probabilities)

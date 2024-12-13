@@ -4,9 +4,11 @@ class Car:
         self.desired_speed = desired_speed
         self.moves_left = min(self.desired_speed,self.tile.speed_limit)
         self.to_remove = False
-        self.color = "tab:black"
+        self.color = "black"
         self.ID = None
         self.timestep_of_creation = None
+        self.route = None
+        self.route_idx = None  # which step of the way through the route are we
 
     @property
     def x(self):
@@ -15,6 +17,10 @@ class Car:
     @property
     def y(self):
         return self.tile.y
+    
+    def set_route(self,route):
+        self.route = route
+        self.route_idx = 0
     
     def set_timestep_of_creation(self,t):
         self.timestep_of_creation = t

@@ -1,6 +1,13 @@
 out/
+claremont/
+presentation/
+report/
 
-
+*.bkp
+*.gif
+*.packaging
+*.drawio
+*.png
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
